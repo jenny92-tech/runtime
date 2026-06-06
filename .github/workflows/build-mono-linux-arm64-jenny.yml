@@ -49,10 +49,14 @@ jobs:
           ldd --version | head -1
 
       - name: Build Mono runtime + libs + host (Release, arm64)
+        # ubuntu:20.04 container's default shell is /bin/sh, which doesn't
+        # know `set -o pipefail`. Force bash so we can keep the pipefail
+        # and still tail the noisy build output.
+        shell: bash
         run: |
           set -o pipefail
           # build.sh defaults to restore+build; passing --restore alone
-          # caused the previous run to skip the build phase and exit 0
+          # caused an earlier run to skip the build phase and exit 0
           # after 54 s. Removed.
           ./build.sh -s mono+libs+host -c Release -arch arm64 \
             2>&1 | tail -500
