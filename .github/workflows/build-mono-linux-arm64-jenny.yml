@@ -36,14 +36,12 @@ jobs:
 
       - name: Build Mono runtime + libs + host (Release, arm64)
         run: |
-          # Same incantation the dotnet/runtime CI uses to produce the
-          # libcoreclr.so that is MonoVM under the hood for Linux arm64.
-          ./build.sh \
-            -s mono+libs+host \
-            -c Release \
-            -arch arm64 \
-            -keepnativesymbols false \
-            --restore 2>&1 | tail -200
+          set -o pipefail
+          # build.sh defaults to restore+build; passing --restore alone
+          # caused the previous run to skip the build phase and exit 0
+          # after 54 s. Removed.
+          ./build.sh -s mono+libs+host -c Release -arch arm64 \
+            2>&1 | tail -500
 
       - name: List native artifacts
         run: |
