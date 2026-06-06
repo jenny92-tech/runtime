@@ -14,81 +14,96 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-24.04-arm
+    # 1 GB-RAM handhelds ship glibc 2.31 (Ubuntu 20.04-era).
+    # Building inside an ubuntu:20.04 container pins the resulting
+    # libcoreclr.so / libhostfxr.so / libstdc++ dependencies to that
+    # version so the binaries can dlopen on the device. Otherwise the
+    # host's glibc 2.39 / GLIBCXX 3.4.
+    # crashes at `version 'GLIBC_2.38' not found`.
+    container:
+      image: ubuntu:20.04
     timeout-minutes: 180
     steps:
-      - name: Checkout dotnet/runtime ${{ inputs.ref }}
+      - name: Checkout dotnet/runtime
         uses: actions/checkout@v4
         with:
           repository: dotnet/runtime
           ref: ${{ inputs.ref }}
-          # dotnet/runtime is huge — depth 1 saves ~2 GB and ~5 min
           fetch-depth: 1
 
-      - name: Install build deps
+      - name: Install build deps (ubuntu:20.04 base, sudo unneeded)
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends \
-            cmake clang lld python3 ninja-build curl \
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update -qq
+          # tzdata is a transitive dep that prompts unless preseeded
+          ln -snf /usr/share/zoneinfo/
+          echo "Etc/UTC" > /etc/timezone
+          apt-get install -y --no-inst
+            ca-certificates curl wget git unzip \
+            cmake clang lld python3 ni
             libicu-dev libssl-dev liblttng-ust-dev \
-            libkrb5-dev zlib1g-dev
+            libkrb5-dev zlib1g-dev \
+            build-essential
           clang --version | head -1
           cmake --version | head -1
+          ldd --version | head -1
 
-      - name: Build Mono runtime + libs + host (Release, arm64)
+      - name: Build Mono runtime + lib
         run: |
           set -o pipefail
           # build.sh defaults to restore+build; passing --restore alone
-          # caused the previous run to skip the build phase and exit 0
+          # caused the previous run tot 0
           # after 54 s. Removed.
-          ./build.sh -s mono+libs+host -c Release -arch arm64 \
+          ./build.sh -s mono+libs+host
             2>&1 | tail -500
 
       - name: List native artifacts
         run: |
           echo "==== mono/Linux.arm64.Release/ ===="
-          ls -lh artifacts/bin/mono/Linux.arm64.Release/ 2>&1 | head -30 || true
+          ls -lh artifacts/bin/mono/Lid -30 || true
           echo
-          echo "==== runtime/net9.0-linux-Release-arm64/ ===="
+          echo "==== runtime/net9.0-li
           ls -lh artifacts/bin/runtime/net9.0-linux-Release-arm64/ 2>&1 | head -30 || true
           echo
           echo "==== libcoreclr.so (looking everywhere) ===="
-          find artifacts -name 'libcoreclr.so' -exec ls -lh {} \;
+          find artifacts -name 'libcor
           find artifacts -name 'libhostfxr.so' -exec ls -lh {} \;
-          find artifacts -name 'libhostpolicy.so' -exec ls -lh {} \;
+          find artifacts -name 'libhos;
           find artifacts -name 'System.Private.CoreLib.dll' -exec ls -lh {} \;
 
       - name: Stage MonoVM overlay package
         run: |
           mkdir -p out/runtimes/linux-arm64/native
-          mkdir -p out/runtimes/linux-arm64/lib/net9.0
+          mkdir -p out/runtimes/linux-
           # native .so files — copy first match
-          for f in libcoreclr.so libhostfxr.so libhostpolicy.so \
+          for f in libcoreclr.so libho
                    libSystem.Native.so libSystem.IO.Compression.Native.so \
-                   libSystem.Net.Security.Native.so \
+                   libSystem.Net.Secur
                    libSystem.Security.Cryptography.Native.OpenSsl.so \
-                   libSystem.Globalization.Native.so; do
+                   libSystem.Globaliza
             src=$(find artifacts -name "$f" | head -1)
-            [ -n "$src" ] && cp -v "$src" out/runtimes/linux-arm64/native/$f || echo "MISSING: $f"
+            [ -n "$src" ] && cp -v "$snative/$f || echo "MISSING: $f"
           done
           # corlib
           src=$(find artifacts -name 'System.Private.CoreLib.dll' | head -1)
-          [ -n "$src" ] && cp -v "$src" out/runtimes/linux-arm64/native/System.Private.CoreLib.dll || echo "MISSING: System.Private.CoreLib.dll"
-          # BCL DLLs (System.*, Microsoft.*, Mono.*)
+          [ -n "$src" ] && cp -v "$srctive/System.Private.CoreLib.dll || echo"MISSING: System.Private.CoreLib.dll"
+          # BCL DLLs (System.*, Micros
           # Look in runtime output dir
-          if [ -d artifacts/bin/runtime/net9.0-linux-Release-arm64 ]; then
-            find artifacts/bin/runtime/net9.0-linux-Release-arm64 -name '*.dll' -exec cp {} out/runtimes/linux-arm64/lib/net9.0/ \;
+          if [ -d artifacts/bin/runtim]; then
+            find artifacts/bin/runtime/net9.0-linux-Release-arm64 -name '*.dll' -exec cp {}
+out/runtimes/linux-arm64/lib/net9.0/ \
           fi
           echo
           echo "==== final out/ ===="
-          ls -lh out/runtimes/linux-arm64/native/
+          ls -lh out/runtimes/linux-ar
           echo "==== BCL .dll count ===="
-          ls out/runtimes/linux-arm64/lib/net9.0/ | wc -l
+          ls out/runtimes/linux-arm64/
           du -sh out/
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@
         if: always()
         with:
           name: monovm-linux-arm64-${{ inputs.ref }}
           path: out/
-          retention-days: 1
+          retention-days: 1    
