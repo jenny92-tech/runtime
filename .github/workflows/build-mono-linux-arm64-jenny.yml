@@ -13,14 +13,17 @@ permissions:
 
 jobs:
   build:
-    runs-on: ubuntu-24.04-arm
-    # Microsoft's prereqs image: modern cmake / llvm / clang on top of a
-    # sysroot pinned to glibc 2.31 — same toolset Microsoft uses for their
-    # own Linux arm64 mono builds. No apt install needed; the binaries
-    # produced load on 1 GB-RAM handhelds (TrimUI / MiniLoong) out of the
-    # box because the sysroot caps the GLIBC requirement.
+    # Mirror Microsoft's own CI for dotnet/runtime v9.0.x mono linux-arm64:
+    #   - x64 host (their Azure DevOps agent is x64)
+    #   - prereqs image azurelinux-3.0-net9.0-cross-arm64
+    #   - /crossrootfs/arm64 sysroot, glibc pinned to match handheld targets
+    #   - build.sh -cross to use the rootfs
+    # Source: dotnet/runtime/eng/pipelines/common/templates/pipeline-with-resources.yml
+    runs-on: ubuntu-24.04
     container:
-      image: mcr.microsoft.com/dotnet-buildtools/prereqs:ubuntu-20.04-arm64
+      image: mcr.microsoft.com/dotnet-buildtools/prereqs:azurelinux-3.0-net9.0-cross-arm64
+      env:
+        ROOTFS_DIR: /crossrootfs/arm64
     timeout-minutes: 180
     steps:
       - name: Checkout dotnet/runtime ${{ inputs.ref }}
@@ -30,13 +33,14 @@ jobs:
           ref: ${{ inputs.ref }}
           fetch-depth: 1
 
-      - name: Build Mono runtime + libs + host (Release, arm64)
-        # The prereqs image's default shell is /bin/sh; force bash so we
-        # can keep `set -o pipefail` for fail-fast on the build pipeline.
+      - name: Build Mono runtime + libs + host (Release, arm64) — cross
         shell: bash
         run: |
           set -o pipefail
-          ./build.sh -s mono+libs+host -c Release -arch arm64 \
+          # -cross tells build.sh to use ROOTFS_DIR as the sysroot, so
+          # the produced binaries link against the rootfs's glibc (not
+          # the host's), which is what we need for old handheld targets.
+          ./build.sh -s mono+libs+host -c Release -arch arm64 -cross \
             2>&1 | tail -500
 
       - name: List native artifacts
