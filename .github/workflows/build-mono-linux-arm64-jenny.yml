@@ -14,62 +14,18 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-24.04-arm
-    # 1 GB-RAM handhelds ship glibc 2.31 (Ubuntu 20.04-era).
-    # Building inside an ubuntu:20.04 container pins the resulting
-    # libcoreclr.so / libhostfxr.so / libstdc++ dependencies to that
-    # version so the binaries can dlopen on the device. Otherwise the
-    # host's glibc 2.39 / GLIBCXX 3.4.29 sneak in and the runtime
-    # crashes at `version 'GLIBC_2.38' not found`.
     container:
-      image: ubuntu:20.04
-    timeout-minutes: 180
+      image: mcr.microsoft.com/dotnet-buildtools/prereqs:ubuntu-20.04-arm64
     steps:
-      - name: Checkout dotnet/runtime ${{ inputs.ref }}
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           repository: dotnet/runtime
           ref: ${{ inputs.ref }}
           fetch-depth: 1
 
-      - name: Install build deps (ubuntu:20.04 base, sudo unneeded)
-        run: |
-          export DEBIAN_FRONTEND=noninteractive
-          apt-get update -qq
-          # tzdata is a transitive dep that prompts unless preseeded
-          ln -snf /usr/share/zoneinfo/Etc/UTC /etc/localtime
-          echo "Etc/UTC" > /etc/timezone
-          apt-get install -y --no-install-recommends \
-            ca-certificates curl wget git unzip gpg \
-            clang lld python3 ninja-build \
-            libicu-dev libssl-dev liblttng-ust-dev \
-            libkrb5-dev zlib1g-dev \
-            build-essential
-
-          # ubuntu:20.04 ships cmake 3.16.3 — dotnet/runtime mono needs ≥ 3.20.
-          # Add Kitware's official apt repo to get a current cmake.
-          wget -qO- https://apt.kitware.com/keys/kitware-archive-latest.asc \
-            | gpg --dearmor -o /etc/apt/trusted.gpg.d/kitware.gpg
-          echo "deb https://apt.kitware.com/ubuntu/ focal main" \
-            > /etc/apt/sources.list.d/kitware.list
-          apt-get update -qq
-          apt-get install -y --no-install-recommends cmake
-
-          clang --version | head -1
-          cmake --version | head -1
-          ldd --version | head -1
-
-      - name: Build Mono runtime + libs + host (Release, arm64)
-        # ubuntu:20.04 container's default shell is /bin/sh, which doesn't
-        # know `set -o pipefail`. Force bash so we can keep the pipefail
-        # and still tail the noisy build output.
+      - name: Build Mono Linux arm64
         shell: bash
-        run: |
-          set -o pipefail
-          # build.sh defaults to restore+build; passing --restore alone
-          # caused an earlier run to skip the build phase and exit 0
-          # after 54 s. Removed.
-          ./build.sh -s mono+libs+host -c Release -arch arm64 \
-            2>&1 | tail -500
+        run: ./build.sh -s mono+libs+host -c Release -arch arm64
 
       - name: List native artifacts
         run: |
