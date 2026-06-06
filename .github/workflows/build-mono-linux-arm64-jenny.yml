@@ -1,0 +1,96 @@
+name: Build Mono Linux arm64 (jenny)
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Git ref to checkout (tag/branch/sha) — e.g. v9.0.16'
+        required: true
+        default: 'v9.0.16'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 180
+    steps:
+      - name: Checkout dotnet/runtime ${{ inputs.ref }}
+        uses: actions/checkout@v4
+        with:
+          repository: dotnet/runtime
+          ref: ${{ inputs.ref }}
+          # dotnet/runtime is huge — depth 1 saves ~2 GB and ~5 min
+          fetch-depth: 1
+
+      - name: Install build deps
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            cmake clang lld python3 ninja-build curl \
+            libicu-dev libssl-dev liblttng-ust-dev \
+            libkrb5-dev zlib1g-dev
+          clang --version | head -1
+          cmake --version | head -1
+
+      - name: Build Mono runtime + libs + host (Release, arm64)
+        run: |
+          # Same incantation the dotnet/runtime CI uses to produce the
+          # libcoreclr.so that is MonoVM under the hood for Linux arm64.
+          ./build.sh \
+            -s mono+libs+host \
+            -c Release \
+            -arch arm64 \
+            -keepnativesymbols false \
+            --restore 2>&1 | tail -200
+
+      - name: List native artifacts
+        run: |
+          echo "==== mono/Linux.arm64.Release/ ===="
+          ls -lh artifacts/bin/mono/Linux.arm64.Release/ 2>&1 | head -30 || true
+          echo
+          echo "==== runtime/net9.0-linux-Release-arm64/ ===="
+          ls -lh artifacts/bin/runtime/net9.0-linux-Release-arm64/ 2>&1 | head -30 || true
+          echo
+          echo "==== libcoreclr.so (looking everywhere) ===="
+          find artifacts -name 'libcoreclr.so' -exec ls -lh {} \;
+          find artifacts -name 'libhostfxr.so' -exec ls -lh {} \;
+          find artifacts -name 'libhostpolicy.so' -exec ls -lh {} \;
+          find artifacts -name 'System.Private.CoreLib.dll' -exec ls -lh {} \;
+
+      - name: Stage MonoVM overlay package
+        run: |
+          mkdir -p out/runtimes/linux-arm64/native
+          mkdir -p out/runtimes/linux-arm64/lib/net9.0
+          # native .so files — copy first match
+          for f in libcoreclr.so libhostfxr.so libhostpolicy.so \
+                   libSystem.Native.so libSystem.IO.Compression.Native.so \
+                   libSystem.Net.Security.Native.so \
+                   libSystem.Security.Cryptography.Native.OpenSsl.so \
+                   libSystem.Globalization.Native.so; do
+            src=$(find artifacts -name "$f" | head -1)
+            [ -n "$src" ] && cp -v "$src" out/runtimes/linux-arm64/native/$f || echo "MISSING: $f"
+          done
+          # corlib
+          src=$(find artifacts -name 'System.Private.CoreLib.dll' | head -1)
+          [ -n "$src" ] && cp -v "$src" out/runtimes/linux-arm64/native/System.Private.CoreLib.dll || echo "MISSING: System.Private.CoreLib.dll"
+          # BCL DLLs (System.*, Microsoft.*, Mono.*)
+          # Look in runtime output dir
+          if [ -d artifacts/bin/runtime/net9.0-linux-Release-arm64 ]; then
+            find artifacts/bin/runtime/net9.0-linux-Release-arm64 -name '*.dll' -exec cp {} out/runtimes/linux-arm64/lib/net9.0/ \;
+          fi
+          echo
+          echo "==== final out/ ===="
+          ls -lh out/runtimes/linux-arm64/native/
+          echo "==== BCL .dll count ===="
+          ls out/runtimes/linux-arm64/lib/net9.0/ | wc -l
+          du -sh out/
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: monovm-linux-arm64-${{ inputs.ref }}
+          path: out/
+          retention-days: 1
