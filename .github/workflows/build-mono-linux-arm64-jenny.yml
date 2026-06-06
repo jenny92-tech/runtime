@@ -39,11 +39,21 @@ jobs:
           ln -snf /usr/share/zoneinfo/Etc/UTC /etc/localtime
           echo "Etc/UTC" > /etc/timezone
           apt-get install -y --no-install-recommends \
-            ca-certificates curl wget git unzip \
-            cmake clang lld python3 ninja-build \
+            ca-certificates curl wget git unzip gpg \
+            clang lld python3 ninja-build \
             libicu-dev libssl-dev liblttng-ust-dev \
             libkrb5-dev zlib1g-dev \
             build-essential
+
+          # ubuntu:20.04 ships cmake 3.16.3 — dotnet/runtime mono needs ≥ 3.20.
+          # Add Kitware's official apt repo to get a current cmake.
+          wget -qO- https://apt.kitware.com/keys/kitware-archive-latest.asc \
+            | gpg --dearmor -o /etc/apt/trusted.gpg.d/kitware.gpg
+          echo "deb https://apt.kitware.com/ubuntu/ focal main" \
+            > /etc/apt/sources.list.d/kitware.list
+          apt-get update -qq
+          apt-get install -y --no-install-recommends cmake
+
           clang --version | head -1
           cmake --version | head -1
           ldd --version | head -1
